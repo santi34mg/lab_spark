@@ -22,4 +22,8 @@ If the CLI is not installed, see: https://docs.databricks.com/dev-tools/cli/inst
 
 ## Project Instructions
 
-<!-- Add your project-specific instructions, coding conventions, or notes here -->
+### Notebooks
+
+ALWAYS use `.py` Databricks notebook source files (starting with `# Databricks notebook source`, cells separated by `# COMMAND ----------`) instead of `.ipynb` notebooks. Never create `.ipynb` files.
+
+<!-- Add more project-specific instructions, coding conventions, or notes here -->
