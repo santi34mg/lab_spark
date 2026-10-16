@@ -20,7 +20,7 @@ targets:
       host: https://dbc-a90d8050-34f5.cloud.databricks.com
     variables:
       catalog: lab_spark
-      schema: dev
+      schema: brz_viajes_stm
   prod:
     mode: production
     workspace:
@@ -29,7 +29,7 @@ targets:
       root_path: /Workspace/Users/santiagosil3434@gmail.com/.bundle/${bundle.name}/${bundle.target}
     variables:
       catalog: lab_spark
-      schema: prod
+      schema: brz_viajes_stm
     permissions:
       - user_name: santiagosil3434@gmail.com
         level: CAN_MANAGE
