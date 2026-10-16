@@ -1,0 +1,31 @@
+resources:
+  jobs:
+    os_api_ingest:
+      name: os_api_ingest
+      description: One shot - descarga todos los .zip de viajes STM (datos abiertos IM) al volume.
+
+      # Sin trigger/schedule: se ejecuta manualmente (databricks bundle run os_api_ingest).
+      timeout_seconds: 14400
+
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        - name: volume
+          default: ${resources.volumes.viajes_stm_raw.name}
+
+      tasks:
+        - task_key: download_zips
+          notebook_task:
+            notebook_path: ../src/notebooks/os_api_ingest.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              volume: ${resources.volumes.viajes_stm_raw.name}
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
