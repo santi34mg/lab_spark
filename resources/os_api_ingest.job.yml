@@ -25,6 +25,17 @@ resources:
               volume: ${resources.volumes.viajes_stm_raw.name}
           environment_key: default
 
+        - task_key: unzip_csvs
+          depends_on:
+            - task_key: download_zips
+          notebook_task:
+            notebook_path: ../src/notebooks/os_unzip.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              volume: ${resources.volumes.viajes_stm_raw.name}
+          environment_key: default
+
       environments:
         - environment_key: default
           spec:

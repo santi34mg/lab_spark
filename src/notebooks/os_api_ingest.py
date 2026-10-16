@@ -13,6 +13,7 @@ import os
 import re
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import zipfile
 
 import requests
 
@@ -75,7 +76,13 @@ results, failures = [], []
 with ThreadPoolExecutor(max_workers=4) as pool:
     futures = {pool.submit(download, r): r["name"] for r in resources}
     for fut in as_completed(futures):
-        results.append(fut.result())
+        try:
+            result = fut.result()
+        except (zipfile.BadZipFile, OSError, ValueError) as e:
+            failures.append((futures[fut], repr(e)))
+            print(f"{futures[fut]} -> FAILED {e!r}")
+            continue
+        results.append(result)
         print(*results[-1], sep=" -> ")
 
 print(f"\nDescargados/revisados: {len(results)}, fallidos: {len(failures)}")
