@@ -1,0 +1,30 @@
+resources:
+  jobs:
+    horarios_unzip:
+      name: horarios_unzip
+      description: One shot - descomprime los .zip de horarios STM del volume horarios en CSVs.
+
+      # Sin trigger/schedule: se ejecuta manualmente (databricks bundle run horarios_unzip).
+      timeout_seconds: 3600
+
+      # El volume horarios no lo gestiona el bundle: se referencia por nombre.
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        - name: volume
+          default: horarios
+        - name: zips_subdir
+          default: zip
+
+      tasks:
+        - task_key: unzip_csvs
+          notebook_task:
+            notebook_path: ../src/notebooks/os_unzip.py
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"

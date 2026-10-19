@@ -1,11 +1,13 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # OS Unzip
-# MAGIC Descomprime los `.zip` descargados por `os_api_ingest` en CSVs dentro del mismo Volume.
+# MAGIC Descomprime los `.zip` de un Volume dentro del mismo Volume.
+# MAGIC Lo usan `os_api_ingest` (viajes), `paradas_unzip` y `horarios_unzip`.
 # MAGIC
-# MAGIC Entrada: `/Volumes/<catalog>/<schema>/<volume>/zips/*.zip`
-# MAGIC Salida: `/Volumes/<catalog>/<schema>/<volume>/csv/<nombre_zip>/<archivo>.csv`
+# MAGIC Entrada: `/Volumes/<catalog>/<schema>/<volume>/<zips_subdir>/*.zip` (`zips_subdir` por defecto `zips`)
+# MAGIC Salida: `/Volumes/<catalog>/<schema>/<volume>/csv/<nombre_zip>/<archivo>`
 # MAGIC
+# MAGIC Extrae todos los archivos del zip, no solo los CSVs (algunos zips, como el de paradas, no traen CSVs).
 # MAGIC Idempotente: salta los archivos que ya existen con el mismo tamaño.
 
 # COMMAND ----------
@@ -13,8 +15,11 @@
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
 volume = dbutils.widgets.get("volume")
+# viajes guarda los zips en "zips/"; paradas y horarios en "zip/"
+dbutils.widgets.text("zips_subdir", "zips")
+zips_subdir = dbutils.widgets.get("zips_subdir")
 base_dir = f"/Volumes/{catalog}/{schema}/{volume}"
-zips_dir = f"{base_dir}/zips"
+zips_dir = f"{base_dir}/{zips_subdir}"
 csv_dir = f"{base_dir}/csv"
 
 # COMMAND ----------
@@ -37,9 +42,9 @@ def unzip(zip_name: str) -> list[tuple[str, str]]:
 
     with zipfile.ZipFile(f"{zips_dir}/{zip_name}") as zf:
         for info in zf.infolist():
-            # Solo CSVs; se usa el basename para evitar rutas fuera de out_dir (zip-slip) y carpetas internas
+            # Se usa el basename para evitar rutas fuera de out_dir (zip-slip) y carpetas internas
             name = os.path.basename(info.filename)
-            if info.is_dir() or not name.lower().endswith(".csv"):
+            if info.is_dir():
                 continue
 
             dest = f"{out_dir}/{name}"
@@ -54,7 +59,7 @@ def unzip(zip_name: str) -> list[tuple[str, str]]:
             results.append((f"{zip_name}/{name}", f"ok ({info.file_size / 1e6:.0f} MB)"))
 
     if not results:
-        raise ValueError(f"{zip_name} no contiene CSVs")
+        raise ValueError(f"{zip_name} está vacío")
     return results
 
 
@@ -72,6 +77,6 @@ with ThreadPoolExecutor(max_workers=4) as pool:
             done.append(r)
             print(*r, sep=" -> ")
 
-print(f"\nCSVs procesados: {len(done)}, zips fallidos: {len(failures)}")
+print(f"\nArchivos procesados: {len(done)}, zips fallidos: {len(failures)}")
 if failures:
     raise RuntimeError(f"Fallaron {len(failures)} zips: {failures}")

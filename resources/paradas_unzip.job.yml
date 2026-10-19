@@ -1,0 +1,30 @@
+resources:
+  jobs:
+    paradas_unzip:
+      name: paradas_unzip
+      description: One shot - descomprime los .zip de paradas STM del volume paradas en CSVs.
+
+      # Sin trigger/schedule: se ejecuta manualmente (databricks bundle run paradas_unzip).
+      timeout_seconds: 3600
+
+      # El volume paradas no lo gestiona el bundle: se referencia por nombre.
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        - name: volume
+          default: paradas
+        - name: zips_subdir
+          default: zip
+
+      tasks:
+        - task_key: unzip_csvs
+          notebook_task:
+            notebook_path: ../src/notebooks/os_unzip.py
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
