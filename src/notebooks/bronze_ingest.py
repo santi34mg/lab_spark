@@ -66,8 +66,3 @@ stream = (
 
 query = stream.writeStream.option("checkpointLocation", checkpoint_dir).trigger(availableNow=True).toTable(target_table)
 query.awaitTermination()
-
-# COMMAND ----------
-
-batches = [p for p in query.recentProgress if p["numInputRows"] > 0]
-print(f"Micro-batches con datos: {len(batches)}, filas cargadas: {sum(p['numInputRows'] for p in batches)}")
