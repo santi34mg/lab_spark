@@ -13,7 +13,7 @@ resources:
         - name: schema
           default: ${var.schema}
         - name: volume
-          default: ${resources.volumes.viajes_stm_raw.name}
+          default: ${resources.volumes.viajes.name}
         # YYYY-MM: reanuda la descarga desde ese mes (vacío = todos los meses)
         - name: start_from
           default: ""
@@ -25,7 +25,7 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
-              volume: ${resources.volumes.viajes_stm_raw.name}
+              volume: ${resources.volumes.viajes.name}
           environment_key: default
 
         - task_key: unzip_csvs
@@ -36,7 +36,7 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
-              volume: ${resources.volumes.viajes_stm_raw.name}
+              volume: ${resources.volumes.viajes.name}
           environment_key: default
 
       environments:

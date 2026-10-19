@@ -2,27 +2,33 @@ resources:
   jobs:
     bronze_ingest:
       name: bronze_ingest
+      description: Carga incremental (Auto Loader) de los CSVs de viajes STM del volume a la tabla bronce viajes.
 
+      # Corre cuando llegan CSVs nuevos al volume (en target dev el trigger queda pausado).
+      # wait_after_last_change espera a que os_unzip termine de escribir antes de disparar.
       trigger:
-        # Run this job every day, exactly one day from the last run; see https://docs.databricks.com/api/workspace/jobs/create#trigger
-        periodic:
-          interval: 1
-          unit: DAYS
+        file_arrival:
+          url: /Volumes/${var.catalog}/${var.schema}/${resources.volumes.viajes.name}/csv/
+          min_time_between_triggers_seconds: 600
+          wait_after_last_change_seconds: 300
 
-      #email_notifications:
-      #  on_failure:
-      #    - your_email@example.com
+      timeout_seconds: 14400
 
       parameters:
         - name: catalog
           default: ${var.catalog}
         - name: schema
           default: ${var.schema}
+        - name: volume
+          default: ${resources.volumes.viajes.name}
+        - name: table
+          default: viajes
 
       tasks:
-        - task_key: notebook_task
+        - task_key: autoloader_viajes
           notebook_task:
             notebook_path: ../src/notebooks/bronze_ingest.py
+          environment_key: default
 
       environments:
         - environment_key: default
