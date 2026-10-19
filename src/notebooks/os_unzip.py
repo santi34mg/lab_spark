@@ -5,9 +5,9 @@
 # MAGIC Lo usan `os_api_ingest` (viajes), `paradas_unzip` y `horarios_unzip`.
 # MAGIC
 # MAGIC Entrada: `/Volumes/<catalog>/<schema>/<volume>/<zips_subdir>/*.zip` (`zips_subdir` por defecto `zips`)
-# MAGIC Salida: `/Volumes/<catalog>/<schema>/<volume>/csv/<nombre_zip>/<archivo>`
+# MAGIC Salida: `/Volumes/<catalog>/<schema>/<volume>/<output_subdir>/<nombre_zip>/<archivo>` (`output_subdir` por defecto `csv`)
 # MAGIC
-# MAGIC Extrae todos los archivos del zip, no solo los CSVs (algunos zips, como el de paradas, no traen CSVs).
+# MAGIC Extrae todos los archivos del zip, no solo los CSVs (el de paradas trae un shapefile y se extrae en `shp/`).
 # MAGIC Idempotente: salta los archivos que ya existen con el mismo tamaño.
 
 # COMMAND ----------
@@ -18,9 +18,12 @@ volume = dbutils.widgets.get("volume")
 # viajes guarda los zips en "zips/"; paradas y horarios en "zip/"
 dbutils.widgets.text("zips_subdir", "zips")
 zips_subdir = dbutils.widgets.get("zips_subdir")
+# paradas trae un shapefile, no CSVs: se extrae en "shp/"
+dbutils.widgets.text("output_subdir", "csv")
+output_subdir = dbutils.widgets.get("output_subdir")
 base_dir = f"/Volumes/{catalog}/{schema}/{volume}"
 zips_dir = f"{base_dir}/{zips_subdir}"
-csv_dir = f"{base_dir}/csv"
+output_dir = f"{base_dir}/{output_subdir}"
 
 # COMMAND ----------
 
@@ -36,7 +39,7 @@ print(f"{len(zip_files)} zips en {zips_dir}")
 
 
 def unzip(zip_name: str) -> list[tuple[str, str]]:
-    out_dir = f"{csv_dir}/{zip_name.removesuffix('.zip')}"
+    out_dir = f"{output_dir}/{zip_name.removesuffix('.zip')}"
     os.makedirs(out_dir, exist_ok=True)
     results = []
 

@@ -2,7 +2,7 @@ resources:
   jobs:
     paradas_unzip:
       name: paradas_unzip
-      description: One shot - descomprime los .zip de paradas STM del volume paradas en CSVs.
+      description: One shot - descomprime los .zip de paradas STM (shapefile) del volume paradas en shp/.
 
       # Sin trigger/schedule: se ejecuta manualmente (databricks bundle run paradas_unzip).
       timeout_seconds: 3600
@@ -17,9 +17,12 @@ resources:
           default: paradas
         - name: zips_subdir
           default: zip
+        # El zip de paradas trae un shapefile (.shp, .dbf, .shx, ...), no CSVs
+        - name: output_subdir
+          default: shp
 
       tasks:
-        - task_key: unzip_csvs
+        - task_key: unzip_shp
           notebook_task:
             notebook_path: ../src/notebooks/os_unzip.py
           environment_key: default
