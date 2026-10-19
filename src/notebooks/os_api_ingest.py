@@ -11,9 +11,10 @@
 
 import os
 import re
+import time
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
@@ -33,6 +34,12 @@ CKAN_PACKAGE_URL = (
 os.makedirs(target_dir, exist_ok=True)
 
 
+# El WAF del portal devuelve 403 (HTML) al User-Agent por defecto de python-requests
+MAX_ATTEMPTS = 5
+http = requests.Session()
+http.headers["User-Agent"] = "Mozilla/5.0 (compatible; lab-databricks-ingest/1.0)"
+
+
 def slugify(text: str) -> str:
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
@@ -40,12 +47,14 @@ def slugify(text: str) -> str:
 
 def is_zip(url: str) -> bool:
     """Los links de imnube no tienen extensión; se consulta el Content-Type con un range de 1 byte."""
-    with requests.get(url, headers={"Range": "bytes=0-0"}, stream=True, timeout=60) as r:
+    with http.get(url, headers={"Range": "bytes=0-0"}, stream=True, timeout=60) as r:
         r.raise_for_status()
         return "zip" in r.headers.get("Content-Type", "").lower()
 
 
-resources = requests.get(CKAN_PACKAGE_URL, timeout=60).json()["result"]["resources"]
+resp = http.get(CKAN_PACKAGE_URL, timeout=60)
+resp.raise_for_status()
+resources = resp.json()["result"]["resources"]
 # Solo recursos de viajes (excluye el diccionario de atributos)
 resources = [r for r in resources if r["name"].lower().startswith("viajes")]
 print(f"{len(resources)} recursos de viajes en el catálogo")
@@ -64,10 +73,21 @@ def download(res: dict) -> tuple[str, str]:
         return name, "skipped (ya existe)"
 
     tmp = dest + ".part"
-    with requests.get(url, stream=True, timeout=(30, 300)) as r:
-        r.raise_for_status()
-        with open(tmp, "wb") as f:
-            f.writelines(r.iter_content(chunk_size=8 * 1024 * 1024))
+    # El servidor corta conexiones largas: se reintenta reanudando con Range desde lo ya descargado
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        done = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+        headers = {"Range": f"bytes={done}-"} if done else {}
+        try:
+            with http.get(url, headers=headers, stream=True, timeout=(30, 300)) as r:
+                r.raise_for_status()
+                resumed = r.status_code == 206
+                with open(tmp, "ab" if resumed else "wb") as f:
+                    f.writelines(r.iter_content(chunk_size=8 * 1024 * 1024))
+            break
+        except (requests.exceptions.ChunkedEncodingError, requests.exceptions.ConnectionError):
+            if attempt == MAX_ATTEMPTS:
+                raise
+            time.sleep(5 * attempt)
     os.rename(tmp, dest)
     return name, f"ok ({os.path.getsize(dest) / 1e6:.0f} MB)"
 
