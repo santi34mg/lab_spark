@@ -1,0 +1,40 @@
+resources:
+  jobs:
+    horarios_ingest:
+      name: horarios_ingest
+      description: Carga (Auto Loader) de los CSVs de horarios STM del volume horarios a las tablas bronce horarios_variante y horarios_circular.
+
+      # Sin trigger/schedule: se ejecuta manualmente después de horarios_unzip (databricks bundle run horarios_ingest).
+      timeout_seconds: 3600
+
+      # El volume horarios no lo gestiona el bundle: se referencia por nombre.
+      # table y source_subdir van por task y no como parámetros del job, porque estos pisan los base_parameters.
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        - name: volume
+          default: horarios
+
+      tasks:
+        - task_key: autoloader_horarios_variante
+          notebook_task:
+            notebook_path: ../src/notebooks/bronze_ingest.py
+            base_parameters:
+              table: horarios_variante
+              source_subdir: csv/uptu_pasada_variante
+          environment_key: default
+
+        - task_key: autoloader_horarios_circular
+          notebook_task:
+            notebook_path: ../src/notebooks/bronze_ingest.py
+            base_parameters:
+              table: horarios_circular
+              source_subdir: csv/uptu_pasada_circular
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"

@@ -1,0 +1,33 @@
+resources:
+  jobs:
+    paradas_ingest:
+      name: paradas_ingest
+      description: Carga el shapefile de paradas STM (leído con GeoPandas en el driver) a la tabla bronce paradas.
+
+      # Sin trigger/schedule: se ejecuta manualmente después de paradas_unzip (databricks bundle run paradas_ingest).
+      timeout_seconds: 3600
+
+      # El volume paradas no lo gestiona el bundle: se referencia por nombre.
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        - name: volume
+          default: paradas
+        - name: table
+          default: paradas
+
+      tasks:
+        - task_key: load_paradas
+          notebook_task:
+            notebook_path: ../src/notebooks/paradas_ingest.py
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
+            # Versión probada contra el pandas/numpy/pyarrow del environment 5 (trae pyogrio, shapely y pyproj)
+            dependencies:
+              - geopandas==1.2.0
