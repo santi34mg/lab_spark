@@ -5,7 +5,7 @@ bundle:
   uuid: 7f0e63cf-37e8-4f5f-bf35-c90bbd0f8a88
 
 include:
-  - resources/*.yml
+  - resources/silver_transform.job.yml
   - variables.yml
 
 targets:
@@ -21,6 +21,7 @@ targets:
     variables:
       catalog: lab_spark
       schema: brz_stm
+      silver_schema: slvr_stm
   prod:
     mode: production
     workspace:
@@ -30,6 +31,7 @@ targets:
     variables:
       catalog: lab_spark
       schema: brz_stm
+      silver_schema: slvr_stm
     permissions:
       - user_name: santiagosil3434@gmail.com
         level: CAN_MANAGE

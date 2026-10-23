@@ -4,3 +4,5 @@ variables:
     description: The catalog to use
   schema:
     description: The schema to use
+  silver_schema:
+    description: The schema to use for silver tables
