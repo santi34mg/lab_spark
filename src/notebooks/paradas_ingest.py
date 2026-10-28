@@ -20,7 +20,7 @@ import pyogrio
 # COMMAND ----------
 
 catalog = dbutils.widgets.get("catalog")
-schema = dbutils.widgets.get("schema")
+schema = dbutils.widgets.get("bronze_schema")
 volume = dbutils.widgets.get("volume")
 table = dbutils.widgets.get("table")
 dbutils.widgets.text("shp_subdir", "shp")

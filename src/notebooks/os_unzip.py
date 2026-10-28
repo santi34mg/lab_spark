@@ -13,7 +13,7 @@
 # COMMAND ----------
 
 catalog = dbutils.widgets.get("catalog")
-schema = dbutils.widgets.get("schema")
+schema = dbutils.widgets.get("bronze_schema")
 volume = dbutils.widgets.get("volume")
 # viajes guarda los zips en "zips/"; paradas y horarios en "zip/"
 dbutils.widgets.text("zips_subdir", "zips")

@@ -11,8 +11,8 @@ resources:
       parameters:
         - name: catalog
           default: ${var.catalog}
-        - name: schema
-          default: ${var.schema}
+        - name: bronze_schema
+          default: ${var.bronze_schema}
         - name: volume
           default: paradas
         - name: zips_subdir

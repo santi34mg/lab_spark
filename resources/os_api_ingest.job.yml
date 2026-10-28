@@ -10,8 +10,8 @@ resources:
       parameters:
         - name: catalog
           default: ${var.catalog}
-        - name: schema
-          default: ${var.schema}
+        - name: bronze_schema
+          default: ${var.bronze_schema}
         - name: volume
           default: ${resources.volumes.viajes.name}
         # YYYY-MM: reanuda la descarga desde ese mes (vacío = todos los meses)
@@ -24,7 +24,7 @@ resources:
             notebook_path: ../src/notebooks/os_api_ingest.py
             base_parameters:
               catalog: ${var.catalog}
-              schema: ${var.schema}
+              bronze_schema: ${var.bronze_schema}
               volume: ${resources.volumes.viajes.name}
           environment_key: default
 
@@ -35,7 +35,7 @@ resources:
             notebook_path: ../src/notebooks/os_unzip.py
             base_parameters:
               catalog: ${var.catalog}
-              schema: ${var.schema}
+              bronze_schema: ${var.bronze_schema}
               volume: ${resources.volumes.viajes.name}
           environment_key: default
 

@@ -25,7 +25,7 @@ import requests
 # COMMAND ----------
 
 catalog = dbutils.widgets.get("catalog")
-schema = dbutils.widgets.get("schema")
+schema = dbutils.widgets.get("bronze_schema")
 volume = dbutils.widgets.get("volume")
 start_from = dbutils.widgets.get("start_from").strip()  # YYYY-MM; vacío = todos
 target_dir = f"/Volumes/{catalog}/{schema}/{volume}/zips"

@@ -19,7 +19,7 @@ from pyspark.sql.types import StringType, StructField, StructType
 # COMMAND ----------
 
 catalog = dbutils.widgets.get("catalog")
-schema = dbutils.widgets.get("schema")
+schema = dbutils.widgets.get("bronze_schema")
 volume = dbutils.widgets.get("volume")
 table = dbutils.widgets.get("table")
 # viajes lee todo csv/ (un subdirectorio por mes); cada CSV de horarios tiene su subdirectorio y su esquema

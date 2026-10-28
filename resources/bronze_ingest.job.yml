@@ -8,7 +8,7 @@ resources:
       # wait_after_last_change espera a que os_unzip termine de escribir antes de disparar.
       trigger:
         file_arrival:
-          url: /Volumes/${var.catalog}/${var.schema}/${resources.volumes.viajes.name}/csv/
+          url: /Volumes/${var.catalog}/${var.bronze_schema}/${resources.volumes.viajes.name}/csv/
           min_time_between_triggers_seconds: 600
           wait_after_last_change_seconds: 300
 
@@ -17,8 +17,8 @@ resources:
       parameters:
         - name: catalog
           default: ${var.catalog}
-        - name: schema
-          default: ${var.schema}
+        - name: bronze_schema
+          default: ${var.bronze_schema}
         - name: volume
           default: ${resources.volumes.viajes.name}
         - name: table

@@ -5,17 +5,17 @@ resources:
 
       trigger:
         table_update:
-          table_names: 
-            - ${var.catalog}.${var.schema}.viajes
-            # - ${var.catalog}.${var.schema}.horarios_variante
-            # - ${var.catalog}.${var.schema}.horarios_circular
-            # - ${var.catalog}.${var.schema}.paradas
+          table_names:
+            - ${var.catalog}.${var.bronze_schema}.viajes
+            - ${var.catalog}.${var.bronze_schema}.horarios_variante
+            - ${var.catalog}.${var.bronze_schema}.horarios_circular
+            - ${var.catalog}.${var.bronze_schema}.paradas
 
       parameters:
         - name: catalog
           default: ${var.catalog}
-        - name: schema
-          default: ${var.schema}
+        - name: bronze_schema
+          default: ${var.bronze_schema}
         - name: silver_schema
           default: ${var.silver_schema}
 

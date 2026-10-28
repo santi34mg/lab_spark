@@ -6,7 +6,7 @@ from pyspark.sql import functions as F
 # COMMAND ----------
 
 catalog = dbutils.widgets.get("catalog")
-bronze_schema = dbutils.widgets.get("schema")
+bronze_schema = dbutils.widgets.get("bronze_schema")
 silver_schema = dbutils.widgets.get("silver_schema")
 
 spark.sql(f"USE CATALOG `{catalog}`")

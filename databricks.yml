@@ -20,7 +20,7 @@ targets:
       host: https://dbc-a90d8050-34f5.cloud.databricks.com
     variables:
       catalog: lab_spark
-      schema: brz_stm
+      bronze_schema: brz_stm
       silver_schema: slvr_stm
   prod:
     mode: production
@@ -30,7 +30,7 @@ targets:
       root_path: /Workspace/Users/santiagosil3434@gmail.com/.bundle/${bundle.name}/${bundle.target}
     variables:
       catalog: lab_spark
-      schema: brz_stm
+      bronze_schema: brz_stm
       silver_schema: slvr_stm
     permissions:
       - user_name: santiagosil3434@gmail.com

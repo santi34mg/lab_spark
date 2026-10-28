@@ -2,7 +2,7 @@
 variables:
   catalog:
     description: The catalog to use
-  schema:
-    description: The schema to use
+  bronze_schema:
+    description: The schema to use for bronze tables
   silver_schema:
     description: The schema to use for silver tables

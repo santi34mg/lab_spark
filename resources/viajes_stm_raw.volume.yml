@@ -2,6 +2,6 @@ resources:
   volumes:
     viajes:
       catalog_name: ${var.catalog}
-      schema_name: ${var.schema}
+      schema_name: ${var.bronze_schema}
       name: viajes
       comment: Landing de los .zip de viajes STM descargados del portal de datos abiertos de la IM.
