@@ -5,7 +5,7 @@ bundle:
   uuid: 7f0e63cf-37e8-4f5f-bf35-c90bbd0f8a88
 
 include:
-  - resources/silver_transform.job.yml
+  - resources/*.yml
   - variables.yml
 
 targets:
