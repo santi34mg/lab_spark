@@ -25,20 +25,20 @@ resources:
             notebook_path: ../src/notebooks/silver/silver_viajes.py
           environment_key: default
 
-        # - task_key: silver_horarios_variante
-        #   notebook_task:
-        #     notebook_path: ../src/notebooks/silver/silver_horarios_variante.py
-        #   environment_key: default
+        - task_key: silver_horarios_variante
+          notebook_task:
+            notebook_path: ../src/notebooks/silver/silver_horarios_variante.py
+          environment_key: default
 
-        # - task_key: silver_horarios_circular
-        #   notebook_task:
-        #     notebook_path: ../src/notebooks/silver/silver_horarios_circular.py
-        #   environment_key: default
+        - task_key: silver_horarios_circular
+          notebook_task:
+            notebook_path: ../src/notebooks/silver/silver_horarios_circular.py
+          environment_key: default
 
-        # - task_key: silver_paradas
-        #   notebook_task:
-        #     notebook_path: ../src/notebooks/silver/silver_paradas.py
-        #   environment_key: default
+        - task_key: silver_paradas
+          notebook_task:
+            notebook_path: ../src/notebooks/silver/silver_paradas.py
+          environment_key: default
 
       environments:
         - environment_key: default
