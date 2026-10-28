@@ -5,6 +5,7 @@ resources:
 
       trigger:
         table_update:
+          condition: ANY_UPDATED
           table_names:
             - ${var.catalog}.${var.bronze_schema}.viajes
             - ${var.catalog}.${var.bronze_schema}.horarios_variante
