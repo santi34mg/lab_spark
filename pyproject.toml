@@ -18,6 +18,8 @@ dev = [
     "databricks-dlt",
     "databricks-connect~=18.0.0",
     "ipykernel",
+    "geopandas",
+    "pyogrio"
 ]
 
 [tool.ruff]
