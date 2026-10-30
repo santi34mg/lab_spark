@@ -1,0 +1,14 @@
+resources:
+  dashboards:
+    stm_movilidad:
+      display_name: Movilidad STM Montevideo
+      file_path: ../src/dashboards/stm_movilidad.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      # Las consultas del dashboard usan nombres de tabla sin catálogo ni schema: se completan con estos valores
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${var.gold_schema}
+      # Los usuarios del workspace ven el dashboard publicado con las credenciales de quien lo despliega
+      embed_credentials: true
+      permissions:
+        - group_name: users
+          level: CAN_RUN

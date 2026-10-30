@@ -1,0 +1,3588 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpis",
+      "displayName": "KPIs del sistema",
+      "queryLines": [
+        "WITH hab AS (\n",
+        "  SELECT mes, sum(subidas_por_dia) AS subidas_dia, sum(viajes_por_dia) AS viajes_dia\n",
+        "  FROM demanda_mensual WHERE tipo_dia = 'Hábil' GROUP BY mes\n",
+        "),\n",
+        "ultimo AS (SELECT max(mes) AS mes FROM hab),\n",
+        "temporada AS (SELECT max(year(mes)) AS anio FROM demanda_mensual WHERE month(mes) = 2),\n",
+        "recuperacion AS (\n",
+        "  SELECT sum(m.subidas_por_dia) / sum(m.base_subidas_por_dia) AS indice\n",
+        "  FROM demanda_mensual m CROSS JOIN temporada t\n",
+        "  WHERE m.tipo_dia = 'Hábil' AND m.base_subidas_por_dia IS NOT NULL\n",
+        "    AND m.mes BETWEEN make_date(t.anio - 1, 11, 1) AND make_date(t.anio, 2, 1)\n",
+        "),\n",
+        "transbordo AS (\n",
+        "  SELECT sum(viajes_con_transbordo) / sum(viajes_tarjeta) AS tasa\n",
+        "  FROM transbordos_mensual\n",
+        "  WHERE NOT fuente_sin_transbordos AND mes > add_months((SELECT max(mes) FROM transbordos_mensual), -12)\n",
+        ")\n",
+        "SELECT date_format(u.mes, 'MM/yyyy') AS mes_kpi, h.subidas_dia, h.viajes_dia, r.indice AS indice_recuperacion,\n",
+        "  concat(cast(t.anio - 1 AS STRING), '/', right(cast(t.anio AS STRING), 2)) AS temporada_kpi, tr.tasa AS tasa_transbordo\n",
+        "FROM ultimo u JOIN hab h ON h.mes = u.mes CROSS JOIN recuperacion r CROSS JOIN temporada t CROSS JOIN transbordo tr\n"
+      ]
+    },
+    {
+      "name": "ds_mensual",
+      "displayName": "Demanda mensual",
+      "queryLines": [
+        "SELECT mes, cast(anio AS STRING) AS anio, tipo_dia, categoria_usuario, subidas, subidas_por_dia, viajes_por_dia\n",
+        "FROM demanda_mensual\n"
+      ]
+    },
+    {
+      "name": "ds_recuperacion",
+      "displayName": "Recuperación por temporada",
+      "queryLines": [
+        "SELECT\n",
+        "  CASE WHEN month(mes) >= 11 THEN concat(cast(year(mes) AS STRING), '/', right(cast(year(mes) + 1 AS STRING), 2))\n",
+        "       ELSE concat(cast(year(mes) - 1 AS STRING), '/', right(cast(year(mes) AS STRING), 2)) END AS temporada,\n",
+        "  categoria_usuario, subidas_por_dia, base_subidas_por_dia\n",
+        "FROM demanda_mensual\n",
+        "WHERE tipo_dia = 'Hábil' AND base_subidas_por_dia IS NOT NULL\n"
+      ],
+      "columns": [
+        {
+          "displayName": "Recuperacion",
+          "expression": "SUM(`subidas_por_dia`) / SUM(`base_subidas_por_dia`)"
+        }
+      ]
+    },
+    {
+      "name": "ds_boletos",
+      "displayName": "Subidas por categoría de boleto",
+      "queryLines": [
+        "SELECT cast(anio AS STRING) AS anio, categoria_boleto, sum(subidas) AS subidas\n",
+        "FROM demanda_diaria\n",
+        "GROUP BY anio, categoria_boleto\n"
+      ]
+    },
+    {
+      "name": "ds_heatmap",
+      "displayName": "Semana típica (últimos 12 meses)",
+      "queryLines": [
+        "WITH ventana AS (SELECT add_months(max(fecha), -12) AS desde FROM demanda_dia),\n",
+        "dias AS (\n",
+        "  SELECT d.dia_semana, count(*) AS dias\n",
+        "  FROM demanda_dia d CROSS JOIN ventana v\n",
+        "  WHERE NOT d.es_atipico AND d.fecha > v.desde\n",
+        "  GROUP BY d.dia_semana\n",
+        ")\n",
+        "SELECT h.nombre_dia, lpad(cast(h.hora AS STRING), 2, '0') AS hora, h.categoria_usuario,\n",
+        "  h.subidas / d.dias AS subidas_por_dia\n",
+        "FROM demanda_hora h JOIN dias d ON h.dia_semana = d.dia_semana CROSS JOIN ventana v\n",
+        "WHERE NOT h.es_atipico AND h.fecha > v.desde\n"
+      ]
+    },
+    {
+      "name": "ds_perfil_ultimo",
+      "displayName": "Día típico del último año",
+      "queryLines": [
+        "SELECT tipo_dia, lpad(cast(hora AS STRING), 2, '0') AS hora, subidas_por_dia\n",
+        "FROM perfil_horario\n",
+        "WHERE anio = (SELECT max(anio) FROM perfil_horario)\n"
+      ]
+    },
+    {
+      "name": "ds_perfil_anios",
+      "displayName": "Forma del día hábil por año",
+      "queryLines": [
+        "SELECT cast(anio AS STRING) AS anio, lpad(cast(hora AS STRING), 2, '0') AS hora, pct_del_dia\n",
+        "FROM perfil_horario\n",
+        "WHERE tipo_dia = 'Hábil' AND anio IN (2019, 2021, 2023, 2025)\n"
+      ]
+    },
+    {
+      "name": "ds_dias",
+      "displayName": "Desvío diario contra lo esperado",
+      "queryLines": [
+        "SELECT fecha, desvio, subidas, subidas_esperadas\n",
+        "FROM demanda_dia\n",
+        "WHERE NOT fuente_anomala\n"
+      ]
+    },
+    {
+      "name": "ds_eventos",
+      "displayName": "Impacto de feriados y fechas especiales",
+      "queryLines": [
+        "SELECT evento, count(*) AS dias, avg(desvio) AS desvio_medio\n",
+        "FROM demanda_dia\n",
+        "WHERE evento IS NOT NULL AND NOT periodo_covid AND NOT fuente_anomala\n",
+        "GROUP BY evento\n"
+      ]
+    },
+    {
+      "name": "ds_sin_feriado",
+      "displayName": "Días atípicos sin feriado",
+      "queryLines": [
+        "SELECT fecha, nombre_dia, subidas, subidas_esperadas, desvio\n",
+        "FROM demanda_dia\n",
+        "WHERE es_atipico AND evento IS NULL AND desvio < 0\n",
+        "ORDER BY desvio\n",
+        "LIMIT 15\n"
+      ]
+    },
+    {
+      "name": "ds_transbordos_kpi",
+      "displayName": "KPIs de transbordo (últimos 12 meses)",
+      "queryLines": [
+        "WITH t AS (\n",
+        "  SELECT sum(viajes_con_transbordo) / sum(viajes_tarjeta) AS tasa,\n",
+        "    sum(transbordos) / sum(viajes_tarjeta) + 1 AS subidas_por_viaje\n",
+        "  FROM transbordos_mensual\n",
+        "  WHERE NOT fuente_sin_transbordos AND mes > add_months((SELECT max(mes) FROM transbordos_mensual), -12)\n",
+        "),\n",
+        "m AS (\n",
+        "  SELECT sum(CASE WHEN misma_linea THEN transbordos END) / sum(transbordos) AS pct_misma_linea,\n",
+        "    sum(CASE WHEN minutos_desde < 60 THEN transbordos END) / sum(transbordos) AS pct_menos_60\n",
+        "  FROM transbordos_minutos\n",
+        ")\n",
+        "SELECT t.tasa, t.subidas_por_viaje, m.pct_misma_linea, m.pct_menos_60 FROM t CROSS JOIN m\n"
+      ]
+    },
+    {
+      "name": "ds_transbordos_mes",
+      "displayName": "Tasa de transbordo mensual",
+      "queryLines": [
+        "SELECT mes, tasa_transbordo FROM transbordos_mensual\n"
+      ]
+    },
+    {
+      "name": "ds_minutos",
+      "displayName": "Minutos entre subidas",
+      "queryLines": [
+        "SELECT tramo_minutos,\n",
+        "  CASE WHEN misma_linea THEN 'Misma línea (ida y vuelta)' ELSE 'Otra línea (transbordo)' END AS tipo,\n",
+        "  transbordos\n",
+        "FROM transbordos_minutos\n"
+      ]
+    },
+    {
+      "name": "ds_corredores",
+      "displayName": "Corredores de transbordo",
+      "queryLines": [
+        "SELECT corredor, transbordos_por_dia, minutos_mediana, parada_principal, pct_en_parada_principal\n",
+        "FROM transbordos_pares\n",
+        "ORDER BY transbordos_por_dia DESC\n",
+        "LIMIT 20\n"
+      ]
+    },
+    {
+      "name": "ds_nodos",
+      "displayName": "Nodos de transbordo",
+      "queryLines": [
+        "SELECT cod_ubic_parada, ubicacion, lat, lon, transbordos_dia_habil, estado_refugio\n",
+        "FROM paradas_espera\n",
+        "WHERE transbordos_dia_habil > 0\n",
+        "ORDER BY transbordos_dia_habil DESC\n",
+        "LIMIT 150\n"
+      ]
+    },
+    {
+      "name": "ds_oferta",
+      "displayName": "Subidas por salida, línea × franja",
+      "queryLines": [
+        "WITH total AS (\n",
+        "  SELECT linea_codigo, tipo_dia,\n",
+        "    row_number() OVER (PARTITION BY tipo_dia ORDER BY subidas_por_dia DESC) AS ranking_demanda\n",
+        "  FROM oferta_demanda_linea\n",
+        "  WHERE franja = '0. Día completo' AND linea IS NOT NULL\n",
+        ")\n",
+        "SELECT concat(lpad(cast(t.ranking_demanda AS STRING), 2, '0'), '. Línea ', o.linea) AS linea_ranking,\n",
+        "  o.linea, o.empresa, o.tipo_dia, o.franja, o.subidas_por_dia, o.salidas_programadas, o.subidas_por_salida,\n",
+        "  t.ranking_demanda\n",
+        "FROM oferta_demanda_linea o JOIN total t ON o.linea_codigo = t.linea_codigo AND o.tipo_dia = t.tipo_dia\n"
+      ],
+      "columns": [
+        {
+          "displayName": "Subidas por salida",
+          "expression": "SUM(`subidas_por_dia`) / SUM(`salidas_programadas`)"
+        }
+      ]
+    },
+    {
+      "name": "ds_oferta_linea",
+      "displayName": "Subidas por salida, día completo",
+      "queryLines": [
+        "SELECT linea, empresa, tipo_dia, subidas_por_dia, salidas_programadas, subidas_por_salida, subidas_por_pasada,\n",
+        "  cobertura_horario,\n",
+        "  row_number() OVER (PARTITION BY tipo_dia ORDER BY subidas_por_salida DESC) AS rank_alto,\n",
+        "  row_number() OVER (PARTITION BY tipo_dia ORDER BY subidas_por_salida ASC) AS rank_bajo\n",
+        "FROM oferta_demanda_linea\n",
+        "WHERE franja = '0. Día completo' AND linea IS NOT NULL AND salidas_programadas >= 30\n",
+        "ORDER BY subidas_por_salida DESC\n"
+      ]
+    },
+    {
+      "name": "ds_paradas",
+      "displayName": "Paradas: demanda, refugio y espera",
+      "queryLines": [
+        "SELECT cod_ubic_parada, ubicacion, lat, lon, estado_refugio, piso, subidas_dia_habil, transbordos_dia_habil,\n",
+        "  pasadas_dia_habil, espera_media_min, horas_espera_dia, horas_espera_intemperie, ranking_intemperie,\n",
+        "  pct_acumulado_intemperie\n",
+        "FROM paradas_espera\n",
+        "ORDER BY ranking_intemperie\n"
+      ],
+      "columns": [
+        {
+          "displayName": "Horas a la intemperie",
+          "expression": "SUM(`horas_espera_intemperie`)"
+        },
+        {
+          "displayName": "Paradas sin refugio",
+          "expression": "SUM(CASE WHEN `estado_refugio` = 'Sin refugio' THEN 1 ELSE 0 END)"
+        },
+        {
+          "displayName": "Paradas para la mitad",
+          "expression": "MIN(CASE WHEN `pct_acumulado_intemperie` >= 0.5 THEN `ranking_intemperie` END)"
+        },
+        {
+          "displayName": "Subidas sin refugio",
+          "expression": "SUM(CASE WHEN `estado_refugio` = 'Sin refugio' THEN `subidas_dia_habil` ELSE 0 END) / SUM(`subidas_dia_habil`)"
+        }
+      ]
+    },
+    {
+      "name": "ds_calidad",
+      "displayName": "Calidad del dato por mes",
+      "queryLines": [
+        "SELECT mes, filas_bronze, filas_silver, filas_descartadas, pct_descartado, dias_con_datos, pct_efectivo,\n",
+        "  transbordos, pct_match_parada, pct_match_variante, coalesce(observacion, '') AS observacion\n",
+        "FROM calidad_mensual\n",
+        "ORDER BY mes\n"
+      ],
+      "columns": [
+        {
+          "displayName": "Descartado",
+          "expression": "1 - SUM(`filas_silver`) / SUM(`filas_bronze`)"
+        },
+        {
+          "displayName": "Meses con alertas",
+          "expression": "SUM(CASE WHEN `observacion` <> '' THEN 1 ELSE 0 END)"
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "pulso",
+      "displayName": "1. Pulso del sistema",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "pulso_titulo",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Movilidad en el STM de Montevideo\n",
+                "\n",
+                "Cada vez que alguien sube a un ómnibus del STM queda un registro: casi 1.900 millones desde noviembre de 2019. **Subida** = cada vez que alguien sube (con tarjeta o en efectivo). **Viaje** = la primera subida; las siguientes dentro del mismo boleto son **transbordos**. Los promedios son por **día típico**: sin feriados, paros ni eventos, que se detectan solos en la página 2.\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_subidas_dia",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "subidas_dia",
+                      "expression": "`subidas_dia`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "subidas_dia",
+                  "displayName": "Subidas por día hábil",
+                  "format": {
+                    "type": "number",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Subidas por día hábil",
+                "showDescription": true,
+                "description": "Día hábil típico del último mes completo"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_viajes_dia",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "viajes_dia",
+                      "expression": "`viajes_dia`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "viajes_dia",
+                  "displayName": "Viajes por día hábil",
+                  "format": {
+                    "type": "number",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Viajes por día hábil",
+                "showDescription": true,
+                "description": "Sin contar transbordos"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_recuperacion",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "indice_recuperacion",
+                      "expression": "`indice_recuperacion`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "indice_recuperacion",
+                  "displayName": "Nivel vs. antes de la pandemia",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Nivel vs. antes de la pandemia",
+                "showDescription": true,
+                "description": "Día hábil, nov-feb más reciente vs. nov-2019 a feb-2020"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_transbordo",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "tasa_transbordo",
+                      "expression": "`tasa_transbordo`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "tasa_transbordo",
+                  "displayName": "Viajes con transbordo",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Viajes con transbordo",
+                "showDescription": true,
+                "description": "Viajes con tarjeta, últimos 12 meses"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "evolucion",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_mensual",
+                  "fields": [
+                    {
+                      "name": "mes",
+                      "expression": "`mes`"
+                    },
+                    {
+                      "name": "sum(subidas_por_dia)",
+                      "expression": "SUM(`subidas_por_dia`)"
+                    },
+                    {
+                      "name": "tipo_dia",
+                      "expression": "`tipo_dia`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "mes",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Mes"
+                },
+                "y": {
+                  "fieldName": "sum(subidas_por_dia)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "displayName": "Subidas por día"
+                },
+                "color": {
+                  "fieldName": "tipo_dia",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Hábil",
+                        "color": "#0072B2"
+                      },
+                      {
+                        "value": "Sábado",
+                        "color": "#E69F00"
+                      },
+                      {
+                        "value": "Domingo",
+                        "color": "#009E73"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Subidas por día típico, por mes",
+                "showDescription": true,
+                "description": "Promedio por día típico de cada tipo. El corte de marzo de 2020 es la emergencia sanitaria; el hueco de junio de 2022 es un archivo anómalo de la fuente (ver página 6)."
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2020-03-13T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "Emergencia sanitaria COVID-19"
+                    },
+                    "color": {
+                      "value": {
+                        "hex": "#D55E00"
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2022-06-01T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "Jun-2022: fuente anómala"
+                    },
+                    "color": {
+                      "value": {
+                        "hex": "#999999"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "recuperacion",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_recuperacion",
+                  "fields": [
+                    {
+                      "name": "temporada",
+                      "expression": "`temporada`"
+                    },
+                    {
+                      "name": "measure(Recuperacion)",
+                      "expression": "MEASURE(`Recuperacion`)"
+                    },
+                    {
+                      "name": "categoria_usuario",
+                      "expression": "`categoria_usuario`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "temporada",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Temporada (nov-feb)"
+                },
+                "y": {
+                  "fieldName": "measure(Recuperacion)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "displayName": "Nivel vs. 2019/20"
+                },
+                "color": {
+                  "fieldName": "categoria_usuario",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Usuario común",
+                        "color": "#0072B2"
+                      },
+                      {
+                        "value": "Estudiante",
+                        "color": "#E69F00"
+                      },
+                      {
+                        "value": "Jubilado",
+                        "color": "#009E73"
+                      },
+                      {
+                        "value": "Gestión social",
+                        "color": "#CC79A7"
+                      },
+                      {
+                        "value": "Efectivo (sin tarjeta)",
+                        "color": "#56B4E9"
+                      },
+                      {
+                        "value": "Otros (convenios, transporte, turistas)",
+                        "color": "#999999"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "¿Quién volvió? Nivel vs. antes de la pandemia (nov-feb, día hábil)",
+                "showDescription": true,
+                "description": "Mismo período del año (noviembre a febrero) contra 2019/20, para no comparar verano con meses de clases. Gestión social supera holgadamente el nivel previo; los jubilados son los que menos volvieron."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "composicion",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_mensual",
+                  "fields": [
+                    {
+                      "name": "anio",
+                      "expression": "`anio`"
+                    },
+                    {
+                      "name": "sum(subidas)",
+                      "expression": "SUM(`subidas`)"
+                    },
+                    {
+                      "name": "categoria_usuario",
+                      "expression": "`categoria_usuario`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "anio",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Año"
+                },
+                "y": {
+                  "fieldName": "sum(subidas)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Proporción de subidas"
+                },
+                "color": {
+                  "fieldName": "categoria_usuario",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Usuario común",
+                        "color": "#0072B2"
+                      },
+                      {
+                        "value": "Estudiante",
+                        "color": "#E69F00"
+                      },
+                      {
+                        "value": "Jubilado",
+                        "color": "#009E73"
+                      },
+                      {
+                        "value": "Gestión social",
+                        "color": "#CC79A7"
+                      },
+                      {
+                        "value": "Efectivo (sin tarjeta)",
+                        "color": "#56B4E9"
+                      },
+                      {
+                        "value": "Otros (convenios, transporte, turistas)",
+                        "color": "#999999"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "¿Quién viaja? Subidas por categoría de usuario",
+                "showDescription": true,
+                "description": "Proporción de las subidas de cada año, en días típicos."
+              },
+              "mark": {
+                "layout": "stack-100"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 12,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "boletos",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_boletos",
+                  "fields": [
+                    {
+                      "name": "anio",
+                      "expression": "`anio`"
+                    },
+                    {
+                      "name": "sum(subidas)",
+                      "expression": "SUM(`subidas`)"
+                    },
+                    {
+                      "name": "categoria_boleto",
+                      "expression": "`categoria_boleto`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "anio",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Año"
+                },
+                "y": {
+                  "fieldName": "sum(subidas)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Proporción de subidas"
+                },
+                "color": {
+                  "fieldName": "categoria_boleto",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Tarifa general",
+                        "color": "#0072B2"
+                      },
+                      {
+                        "value": "Descuento estudiante/jubilado",
+                        "color": "#E69F00"
+                      },
+                      {
+                        "value": "Gratuito",
+                        "color": "#009E73"
+                      },
+                      {
+                        "value": "Gestión social",
+                        "color": "#CC79A7"
+                      },
+                      {
+                        "value": "Metropolitano",
+                        "color": "#56B4E9"
+                      },
+                      {
+                        "value": "Otros",
+                        "color": "#999999"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "¿Con qué boleto? Subidas por categoría de boleto",
+                "showDescription": true,
+                "description": "Agrupación propia de los tipos de viaje: tarifa general (1 hora, 2 horas, común, zonal, céntrico, diferencial), descuentos (EST. A/B, JUB. A/B), gratuitos (estudiante gratuito y otros), gestión social y metropolitano."
+              },
+              "mark": {
+                "layout": "stack-100"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 19,
+            "width": 12,
+            "height": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "cuando",
+      "displayName": "2. ¿Cuándo viajamos?",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "cuando_titulo",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# ¿Cuándo viajamos?\n",
+                "\n",
+                "La semana típica tiene tres picos en los días hábiles: la mañana (7-8 h), el mediodía (12-13 h, cambio de turno escolar) y la tarde (17 h). Los fines de semana la curva es más plana. Filtrá por categoría para ver, por ejemplo, el patrón de los estudiantes.\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 9,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "filtro_categoria",
+            "queries": [
+              {
+                "name": "filtro_categoria_0",
+                "query": {
+                  "datasetName": "ds_heatmap",
+                  "fields": [
+                    {
+                      "name": "categoria_usuario",
+                      "expression": "`categoria_usuario`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "categoria_usuario",
+                    "displayName": "Categoría de usuario",
+                    "queryName": "filtro_categoria_0"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Categoría de usuario"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "semana_tipica",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_heatmap",
+                  "fields": [
+                    {
+                      "name": "hora",
+                      "expression": "`hora`"
+                    },
+                    {
+                      "name": "nombre_dia",
+                      "expression": "`nombre_dia`"
+                    },
+                    {
+                      "name": "sum(subidas_por_dia)",
+                      "expression": "SUM(`subidas_por_dia`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "heatmap",
+              "encodings": {
+                "x": {
+                  "fieldName": "hora",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "y": {
+                  "fieldName": "nombre_dia",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(subidas_por_dia)",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#F0E442",
+                        "end": "#0072B2"
+                      }
+                    }
+                  },
+                  "format": {
+                    "type": "number",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Semana típica: subidas promedio por hora (últimos 12 meses, sin feriados)",
+                "showDescription": true,
+                "description": "Subidas promedio por hora en un día típico de cada día de la semana. Excluye días atípicos."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "dia_tipico",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_perfil_ultimo",
+                  "fields": [
+                    {
+                      "name": "hora",
+                      "expression": "`hora`"
+                    },
+                    {
+                      "name": "sum(subidas_por_dia)",
+                      "expression": "SUM(`subidas_por_dia`)"
+                    },
+                    {
+                      "name": "tipo_dia",
+                      "expression": "`tipo_dia`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "hora",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Hora"
+                },
+                "y": {
+                  "fieldName": "sum(subidas_por_dia)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "displayName": "Subidas por hora"
+                },
+                "color": {
+                  "fieldName": "tipo_dia",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Hábil",
+                        "color": "#0072B2"
+                      },
+                      {
+                        "value": "Sábado",
+                        "color": "#E69F00"
+                      },
+                      {
+                        "value": "Domingo",
+                        "color": "#009E73"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Un día típico: hábil vs. sábado vs. domingo (último año)",
+                "showDescription": true,
+                "description": "Subidas promedio por hora en el último año, sin días atípicos."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "forma_dia",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_perfil_anios",
+                  "fields": [
+                    {
+                      "name": "hora",
+                      "expression": "`hora`"
+                    },
+                    {
+                      "name": "sum(pct_del_dia)",
+                      "expression": "SUM(`pct_del_dia`)"
+                    },
+                    {
+                      "name": "anio",
+                      "expression": "`anio`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "hora",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Hora"
+                },
+                "y": {
+                  "fieldName": "sum(pct_del_dia)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "displayName": "% de las subidas del día"
+                },
+                "color": {
+                  "fieldName": "anio",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "2019",
+                        "color": "#999999"
+                      },
+                      {
+                        "value": "2021",
+                        "color": "#56B4E9"
+                      },
+                      {
+                        "value": "2023",
+                        "color": "#E69F00"
+                      },
+                      {
+                        "value": "2025",
+                        "color": "#0072B2"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "¿Cambió la forma del día hábil? Peso de cada hora en el día",
+                "showDescription": true,
+                "description": "Qué proporción de las subidas del día hábil ocurre en cada hora. Si la punta pierde peso con los años, esa franja necesita menos ómnibus en simultáneo."
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 10,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "desvio_diario",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_dias",
+                  "fields": [
+                    {
+                      "name": "fecha",
+                      "expression": "`fecha`"
+                    },
+                    {
+                      "name": "sum(desvio)",
+                      "expression": "SUM(`desvio`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "fecha",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Fecha"
+                },
+                "y": {
+                  "fieldName": "sum(desvio)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "displayName": "Desvío"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Días atípicos: desvío de cada día contra lo esperado",
+                "showDescription": true,
+                "description": "Subidas de cada día contra lo esperado (mediana del mismo día de la semana ±4 semanas). Las caídas son feriados y paros; los picos positivos de domingo son elecciones."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "eventos",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_eventos",
+                  "fields": [
+                    {
+                      "name": "evento",
+                      "expression": "`evento`"
+                    },
+                    {
+                      "name": "sum(desvio_medio)",
+                      "expression": "SUM(`desvio_medio`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(desvio_medio)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "displayName": "Desvío promedio"
+                },
+                "y": {
+                  "fieldName": "evento",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Impacto promedio de feriados y fechas especiales",
+                "showDescription": true,
+                "description": "Desvío promedio de cada fecha especial contra un día normal. El 1° de enero y el 1° de mayo no hay servicio; los domingos de elecciones el sistema mueve bastante más gente que un domingo común."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 21,
+            "width": 6,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "sin_feriado",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_sin_feriado",
+                  "fields": [
+                    {
+                      "name": "fecha",
+                      "expression": "`fecha`"
+                    },
+                    {
+                      "name": "nombre_dia",
+                      "expression": "`nombre_dia`"
+                    },
+                    {
+                      "name": "subidas",
+                      "expression": "`subidas`"
+                    },
+                    {
+                      "name": "subidas_esperadas",
+                      "expression": "`subidas_esperadas`"
+                    },
+                    {
+                      "name": "desvio",
+                      "expression": "`desvio`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "fecha",
+                    "displayName": "Fecha"
+                  },
+                  {
+                    "fieldName": "nombre_dia",
+                    "displayName": "Día"
+                  },
+                  {
+                    "fieldName": "subidas",
+                    "displayName": "Subidas",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "subidas_esperadas",
+                    "displayName": "Esperadas",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "desvio",
+                    "displayName": "Desvío",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Días atípicos sin feriado: ¿paros?",
+                "showDescription": true,
+                "description": "Días con mucha menos demanda que lo esperado y sin feriado en el calendario: coinciden con paros generales. El modelo los encuentra sin que nadie se los indique."
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 21,
+            "width": 6,
+            "height": 8
+          }
+        }
+      ]
+    },
+    {
+      "name": "transbordos",
+      "displayName": "3. Transbordos",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "transbordos_titulo",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# ¿Cómo se combinan las líneas?\n",
+                "\n",
+                "Los viajes se reconstruyen desde los tramos del mismo boleto (id_viaje), en orden. Un **transbordo** es subir a otro ómnibus dentro del boleto de 1 o 2 horas. Los minutos entre subidas incluyen el viaje en el primer ómnibus: **no son tiempo de espera**.\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_tasa",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_transbordos_kpi",
+                  "fields": [
+                    {
+                      "name": "tasa",
+                      "expression": "`tasa`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "tasa",
+                  "displayName": "Viajes con transbordo",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Viajes con transbordo",
+                "showDescription": true,
+                "description": "Viajes con tarjeta, últimos 12 meses"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_subidas_viaje",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_transbordos_kpi",
+                  "fields": [
+                    {
+                      "name": "subidas_por_viaje",
+                      "expression": "`subidas_por_viaje`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "subidas_por_viaje",
+                  "displayName": "Subidas por viaje",
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Subidas por viaje",
+                "showDescription": true,
+                "description": "Promedio por viaje con tarjeta"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_menos_60",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_transbordos_kpi",
+                  "fields": [
+                    {
+                      "name": "pct_menos_60",
+                      "expression": "`pct_menos_60`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "pct_menos_60",
+                  "displayName": "Transbordos en menos de 60 min",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Transbordos en menos de 60 min",
+                "showDescription": true,
+                "description": "Entre una subida y la siguiente (incluye el viaje en el primer ómnibus)"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 3,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "tasa_mensual",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_transbordos_mes",
+                  "fields": [
+                    {
+                      "name": "mes",
+                      "expression": "`mes`"
+                    },
+                    {
+                      "name": "sum(tasa_transbordo)",
+                      "expression": "SUM(`tasa_transbordo`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "mes",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Mes"
+                },
+                "y": {
+                  "fieldName": "sum(tasa_transbordo)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "displayName": "% de viajes con tarjeta"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Viajes con al menos un transbordo, por mes",
+                "showDescription": true,
+                "description": "Proporción de los viajes con tarjeta que hacen al menos un transbordo. Junio de 2022 queda vacío: ese archivo de la fuente no informa transbordos."
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2022-06-01T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "Jun-2022: la fuente no informa transbordos"
+                    },
+                    "color": {
+                      "value": {
+                        "hex": "#999999"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "minutos",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_minutos",
+                  "fields": [
+                    {
+                      "name": "tramo_minutos",
+                      "expression": "`tramo_minutos`"
+                    },
+                    {
+                      "name": "sum(transbordos)",
+                      "expression": "SUM(`transbordos`)"
+                    },
+                    {
+                      "name": "tipo",
+                      "expression": "`tipo`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "tramo_minutos",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Minutos"
+                },
+                "y": {
+                  "fieldName": "sum(transbordos)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "displayName": "Transbordos"
+                },
+                "color": {
+                  "fieldName": "tipo",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Otra línea (transbordo)",
+                        "color": "#0072B2"
+                      },
+                      {
+                        "value": "Misma línea (ida y vuelta)",
+                        "color": "#E69F00"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Minutos entre una subida y la siguiente (últimos 12 meses)",
+                "showDescription": true,
+                "description": "Casi todos los transbordos ocurren antes de los 65 minutos: después la curva se corta de golpe. La ventana del boleto de 1 hora moldea cómo viaja la gente."
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 6,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "corredores",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_corredores",
+                  "fields": [
+                    {
+                      "name": "corredor",
+                      "expression": "`corredor`"
+                    },
+                    {
+                      "name": "transbordos_por_dia",
+                      "expression": "`transbordos_por_dia`"
+                    },
+                    {
+                      "name": "minutos_mediana",
+                      "expression": "`minutos_mediana`"
+                    },
+                    {
+                      "name": "parada_principal",
+                      "expression": "`parada_principal`"
+                    },
+                    {
+                      "name": "pct_en_parada_principal",
+                      "expression": "`pct_en_parada_principal`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "corredor",
+                    "displayName": "Corredor (origen → destino)"
+                  },
+                  {
+                    "fieldName": "transbordos_por_dia",
+                    "displayName": "Transbordos por día",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "minutos_mediana",
+                    "displayName": "Minutos (mediana)",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "parada_principal",
+                    "displayName": "Parada principal"
+                  },
+                  {
+                    "fieldName": "pct_en_parada_principal",
+                    "displayName": "% en esa parada",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Corredores de transbordo más usados (últimos 12 meses)",
+                "showDescription": true,
+                "description": "Pares de líneas distintas más combinados. Si casi todo el transbordo de un par ocurre en una misma parada, ahí conviene coordinar horarios o evaluar una línea directa."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 7,
+            "height": 9
+          }
+        },
+        {
+          "widget": {
+            "name": "nodos",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_nodos",
+                  "fields": [
+                    {
+                      "name": "lat",
+                      "expression": "`lat`"
+                    },
+                    {
+                      "name": "lon",
+                      "expression": "`lon`"
+                    },
+                    {
+                      "name": "transbordos_dia_habil",
+                      "expression": "`transbordos_dia_habil`"
+                    },
+                    {
+                      "name": "estado_refugio",
+                      "expression": "`estado_refugio`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "symbol-map",
+              "encodings": {
+                "coordinates": {
+                  "latitude": {
+                    "fieldName": "lat"
+                  },
+                  "longitude": {
+                    "fieldName": "lon"
+                  }
+                },
+                "size": {
+                  "fieldName": "transbordos_dia_habil",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "estado_refugio",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Sin refugio",
+                        "color": "#D55E00"
+                      },
+                      {
+                        "value": "Refugio en mal estado",
+                        "color": "#E69F00"
+                      },
+                      {
+                        "value": "Con refugio",
+                        "color": "#0072B2"
+                      },
+                      {
+                        "value": "Sin dato",
+                        "color": "#999999"
+                      }
+                    ]
+                  }
+                }
+              },
+              "mark": {
+                "opacity": 0.75
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Nodos de transbordo: subidas de transbordo por día hábil",
+                "showDescription": true,
+                "description": "Paradas donde más gente sube en transbordo. En rojo, las que no tienen refugio."
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 12,
+            "width": 5,
+            "height": 9
+          }
+        }
+      ]
+    },
+    {
+      "name": "oferta",
+      "displayName": "4. ¿Alcanza la oferta?",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "oferta_titulo",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# ¿Alcanza la oferta programada?\n",
+                "\n",
+                "**Subidas por salida** = subidas promedio de un día típico (últimos 2 meses completos) / salidas que el horario vigente programa ese día. Mide cuánta gente sube por cada ómnibus que sale, **no la ocupación**: no hay datos de bajada. Valores altos señalan líneas o franjas que piden refuerzo; valores bajos, frecuencias a revisar.\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 9,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "filtro_tipo_dia",
+            "queries": [
+              {
+                "name": "filtro_tipo_dia_0",
+                "query": {
+                  "datasetName": "ds_oferta",
+                  "fields": [
+                    {
+                      "name": "tipo_dia",
+                      "expression": "`tipo_dia`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "filtro_tipo_dia_1",
+                "query": {
+                  "datasetName": "ds_oferta_linea",
+                  "fields": [
+                    {
+                      "name": "tipo_dia",
+                      "expression": "`tipo_dia`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "tipo_dia",
+                    "displayName": "Tipo de día",
+                    "queryName": "filtro_tipo_dia_0"
+                  },
+                  {
+                    "fieldName": "tipo_dia",
+                    "displayName": "Tipo de día",
+                    "queryName": "filtro_tipo_dia_1"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Tipo de día"
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "STRING",
+                    "values": [
+                      {
+                        "value": "Hábil"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 0,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_subidas_salida",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_oferta",
+                  "fields": [
+                    {
+                      "name": "measure(Subidas por salida)",
+                      "expression": "MEASURE(`Subidas por salida`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "`franja` = '0. Día completo'"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Subidas por salida)",
+                  "displayName": "Subidas por salida (sistema)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Subidas por salida (sistema)",
+                "showDescription": true,
+                "description": "Todas las líneas, día completo"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 2,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "oferta_franja",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_oferta",
+                  "fields": [
+                    {
+                      "name": "franja",
+                      "expression": "`franja`"
+                    },
+                    {
+                      "name": "linea_ranking",
+                      "expression": "`linea_ranking`"
+                    },
+                    {
+                      "name": "sum(subidas_por_salida)",
+                      "expression": "SUM(`subidas_por_salida`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "`ranking_demanda` <= 25"
+                    },
+                    {
+                      "expression": "`franja` <> '0. Día completo'"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "heatmap",
+              "encodings": {
+                "x": {
+                  "fieldName": "franja",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "y": {
+                  "fieldName": "linea_ranking",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(subidas_por_salida)",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#F0E442",
+                        "end": "#D55E00"
+                      }
+                    }
+                  },
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Subidas por salida programada: las 25 líneas con más demanda × franja horaria",
+                "showDescription": true,
+                "description": "Las 25 líneas con más demanda, ordenadas de mayor a menor. Cuanto más rojo, más gente sube por cada salida programada en esa franja."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 12,
+            "height": 10
+          }
+        },
+        {
+          "widget": {
+            "name": "mas_cargadas",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_oferta_linea",
+                  "fields": [
+                    {
+                      "name": "linea",
+                      "expression": "`linea`"
+                    },
+                    {
+                      "name": "sum(subidas_por_salida)",
+                      "expression": "SUM(`subidas_por_salida`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "`rank_alto` <= 15"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(subidas_por_salida)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "displayName": "Subidas por salida"
+                },
+                "y": {
+                  "fieldName": "linea",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Más subidas por salida: candidatas a reforzar",
+                "showDescription": true,
+                "description": "Líneas con al menos 30 salidas por día. Primeras candidatas a sumar salidas."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 6,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "menos_cargadas",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_oferta_linea",
+                  "fields": [
+                    {
+                      "name": "linea",
+                      "expression": "`linea`"
+                    },
+                    {
+                      "name": "sum(subidas_por_salida)",
+                      "expression": "SUM(`subidas_por_salida`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "`rank_bajo` <= 15"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(subidas_por_salida)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "displayName": "Subidas por salida"
+                },
+                "y": {
+                  "fieldName": "linea",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Menos subidas por salida: candidatas a revisar frecuencia",
+                "showDescription": true,
+                "description": "Líneas con al menos 30 salidas por día y poca demanda por salida: en su mayoría líneas locales. Candidatas a revisar frecuencia o recorrido."
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 14,
+            "width": 6,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "tabla_lineas",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_oferta_linea",
+                  "fields": [
+                    {
+                      "name": "linea",
+                      "expression": "`linea`"
+                    },
+                    {
+                      "name": "empresa",
+                      "expression": "`empresa`"
+                    },
+                    {
+                      "name": "subidas_por_dia",
+                      "expression": "`subidas_por_dia`"
+                    },
+                    {
+                      "name": "salidas_programadas",
+                      "expression": "`salidas_programadas`"
+                    },
+                    {
+                      "name": "subidas_por_salida",
+                      "expression": "`subidas_por_salida`"
+                    },
+                    {
+                      "name": "subidas_por_pasada",
+                      "expression": "`subidas_por_pasada`"
+                    },
+                    {
+                      "name": "cobertura_horario",
+                      "expression": "`cobertura_horario`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "linea",
+                    "displayName": "Línea"
+                  },
+                  {
+                    "fieldName": "empresa",
+                    "displayName": "Empresa"
+                  },
+                  {
+                    "fieldName": "subidas_por_dia",
+                    "displayName": "Subidas por día",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "salidas_programadas",
+                    "displayName": "Salidas programadas",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "subidas_por_salida",
+                    "displayName": "Subidas por salida",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "subidas_por_pasada",
+                    "displayName": "Subidas por pasada",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "cobertura_horario",
+                    "displayName": "Cobertura del horario",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Todas las líneas (al menos 30 salidas por día)",
+                "showDescription": true,
+                "description": "Subidas por pasada = subidas / (salidas × paradas del recorrido): corrige por el largo de la línea. Cobertura = proporción de las subidas cuya variante tiene horario vigente."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 22,
+            "width": 12,
+            "height": 8
+          }
+        }
+      ]
+    },
+    {
+      "name": "refugios",
+      "displayName": "5. ¿Dónde poner refugios?",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "refugios_titulo",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# ¿Dónde poner refugios primero?\n",
+                "\n",
+                "**Horas-persona de espera** = subidas × la mitad del intervalo programado de su línea en esa parada y franja (tope de 15 minutos, porque con intervalos largos la gente consulta el horario; cero en la cabecera). Sumadas en las paradas **sin refugio** dan las horas que la gente pasa esperando a la intemperie en un día hábil. Pocas paradas concentran la mitad: poner refugio ahí rinde más que repartir.\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_horas_intemperie",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_paradas",
+                  "fields": [
+                    {
+                      "name": "measure(Horas a la intemperie)",
+                      "expression": "MEASURE(`Horas a la intemperie`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Horas a la intemperie)",
+                  "displayName": "Horas-persona esperando a la intemperie",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Horas-persona esperando a la intemperie",
+                "showDescription": true,
+                "description": "Por día hábil, en paradas sin refugio"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_paradas_mitad",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_paradas",
+                  "fields": [
+                    {
+                      "name": "measure(Paradas para la mitad)",
+                      "expression": "MEASURE(`Paradas para la mitad`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Paradas para la mitad)",
+                  "displayName": "Paradas que concentran la mitad",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Paradas que concentran la mitad",
+                "showDescription": true,
+                "description": "De esas horas a la intemperie"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 4,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_sin_refugio",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_paradas",
+                  "fields": [
+                    {
+                      "name": "measure(Paradas sin refugio)",
+                      "expression": "MEASURE(`Paradas sin refugio`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Paradas sin refugio)",
+                  "displayName": "Paradas sin refugio",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Paradas sin refugio",
+                "showDescription": true,
+                "description": "Según el relevamiento de la IM"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 4,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_subidas_sin_refugio",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_paradas",
+                  "fields": [
+                    {
+                      "name": "measure(Subidas sin refugio)",
+                      "expression": "MEASURE(`Subidas sin refugio`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Subidas sin refugio)",
+                  "displayName": "Subidas en paradas sin refugio",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Subidas en paradas sin refugio",
+                "showDescription": true,
+                "description": "Día hábil típico"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 4,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "mapa_prioridad",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_paradas",
+                  "fields": [
+                    {
+                      "name": "lat",
+                      "expression": "`lat`"
+                    },
+                    {
+                      "name": "lon",
+                      "expression": "`lon`"
+                    },
+                    {
+                      "name": "horas_espera_intemperie",
+                      "expression": "`horas_espera_intemperie`"
+                    },
+                    {
+                      "name": "piso",
+                      "expression": "`piso`"
+                    }
+                  ],
+                  "disaggregated": true,
+                  "filters": [
+                    {
+                      "expression": "`ranking_intemperie` <= 300"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "symbol-map",
+              "encodings": {
+                "coordinates": {
+                  "latitude": {
+                    "fieldName": "lat"
+                  },
+                  "longitude": {
+                    "fieldName": "lon"
+                  }
+                },
+                "size": {
+                  "fieldName": "horas_espera_intemperie",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "piso",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Tierra o cuneta",
+                        "color": "#D55E00"
+                      },
+                      {
+                        "value": "Vereda o pavimento",
+                        "color": "#0072B2"
+                      },
+                      {
+                        "value": "Sin dato",
+                        "color": "#999999"
+                      }
+                    ]
+                  }
+                }
+              },
+              "mark": {
+                "opacity": 0.75
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Las 300 paradas sin refugio con más horas de espera",
+                "showDescription": true,
+                "description": "Tamaño = horas-persona de espera a la intemperie por día hábil. Color = superficie de espera: en bermellón, tierra o cuneta."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 8,
+            "height": 11
+          }
+        },
+        {
+          "widget": {
+            "name": "espera_refugio",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_paradas",
+                  "fields": [
+                    {
+                      "name": "estado_refugio",
+                      "expression": "`estado_refugio`"
+                    },
+                    {
+                      "name": "sum(horas_espera_dia)",
+                      "expression": "SUM(`horas_espera_dia`)"
+                    },
+                    {
+                      "name": "estado_refugio",
+                      "expression": "`estado_refugio`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "estado_refugio",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(horas_espera_dia)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "displayName": "Horas por día"
+                },
+                "color": {
+                  "fieldName": "estado_refugio",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Sin refugio",
+                        "color": "#D55E00"
+                      },
+                      {
+                        "value": "Refugio en mal estado",
+                        "color": "#E69F00"
+                      },
+                      {
+                        "value": "Con refugio",
+                        "color": "#0072B2"
+                      },
+                      {
+                        "value": "Sin dato",
+                        "color": "#999999"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Horas-persona de espera por día hábil, según el refugio",
+                "showDescription": true,
+                "description": "Horas-persona de espera por día hábil en todas las paradas, según el estado del refugio."
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 7,
+            "width": 4,
+            "height": 11
+          }
+        },
+        {
+          "widget": {
+            "name": "tabla_prioridad",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_paradas",
+                  "fields": [
+                    {
+                      "name": "ranking_intemperie",
+                      "expression": "`ranking_intemperie`"
+                    },
+                    {
+                      "name": "ubicacion",
+                      "expression": "`ubicacion`"
+                    },
+                    {
+                      "name": "subidas_dia_habil",
+                      "expression": "`subidas_dia_habil`"
+                    },
+                    {
+                      "name": "espera_media_min",
+                      "expression": "`espera_media_min`"
+                    },
+                    {
+                      "name": "horas_espera_intemperie",
+                      "expression": "`horas_espera_intemperie`"
+                    },
+                    {
+                      "name": "piso",
+                      "expression": "`piso`"
+                    },
+                    {
+                      "name": "pct_acumulado_intemperie",
+                      "expression": "`pct_acumulado_intemperie`"
+                    }
+                  ],
+                  "disaggregated": true,
+                  "filters": [
+                    {
+                      "expression": "`ranking_intemperie` <= 30"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "ranking_intemperie",
+                    "displayName": "Prioridad",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "ubicacion",
+                    "displayName": "Parada"
+                  },
+                  {
+                    "fieldName": "subidas_dia_habil",
+                    "displayName": "Subidas por día hábil",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "espera_media_min",
+                    "displayName": "Espera media (min)",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "horas_espera_intemperie",
+                    "displayName": "Horas a la intemperie por día",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "piso",
+                    "displayName": "Piso"
+                  },
+                  {
+                    "fieldName": "pct_acumulado_intemperie",
+                    "displayName": "% acumulado",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Ranking de paradas sin refugio",
+                "showDescription": true,
+                "description": "Orden de prioridad por horas a la intemperie. % acumulado = qué parte del total se cubre poniendo refugio hasta esa parada."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 12,
+            "height": 9
+          }
+        }
+      ]
+    },
+    {
+      "name": "calidad",
+      "displayName": "6. Calidad del dato",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "calidad_titulo",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Calidad del dato y linaje\n",
+                "\n",
+                "**Medallion**: bronze guarda los CSV crudos de la Intendencia tal cual (texto); silver tipa, limpia y deduplica; gold agrega en las métricas de este dashboard. Esta página controla el linaje mes a mes: filas en cada capa, descartes, efectivo, transbordos informados y cruce con paradas y horarios. Los horarios y las paradas son una foto actual, por eso el cruce con variantes cae hacia atrás en el tiempo.\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_bronze",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_calidad",
+                  "fields": [
+                    {
+                      "name": "sum(filas_bronze)",
+                      "expression": "SUM(`filas_bronze`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(filas_bronze)",
+                  "displayName": "Filas en bronze",
+                  "format": {
+                    "type": "number",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Filas en bronze",
+                "showDescription": true,
+                "description": "CSV crudos de viajes"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_silver",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_calidad",
+                  "fields": [
+                    {
+                      "name": "sum(filas_silver)",
+                      "expression": "SUM(`filas_silver`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(filas_silver)",
+                  "displayName": "Filas en silver",
+                  "format": {
+                    "type": "number",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Filas en silver",
+                "showDescription": true,
+                "description": "Tipadas, limpias y deduplicadas"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 4,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_descartado",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_calidad",
+                  "fields": [
+                    {
+                      "name": "measure(Descartado)",
+                      "expression": "MEASURE(`Descartado`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Descartado)",
+                  "displayName": "Descartado de bronze a silver",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Descartado de bronze a silver",
+                "showDescription": true,
+                "description": "Nulos obligatorios, cantidades inválidas y duplicados"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 4,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_alertas",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_calidad",
+                  "fields": [
+                    {
+                      "name": "measure(Meses con alertas)",
+                      "expression": "MEASURE(`Meses con alertas`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Meses con alertas)",
+                  "displayName": "Meses con alertas",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Meses con alertas",
+                "showDescription": true,
+                "description": "Ver la tabla de abajo"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 4,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "filas_mes",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_calidad",
+                  "fields": [
+                    {
+                      "name": "mes",
+                      "expression": "`mes`"
+                    },
+                    {
+                      "name": "sum(filas_bronze)",
+                      "expression": "SUM(`filas_bronze`)"
+                    },
+                    {
+                      "name": "sum(filas_silver)",
+                      "expression": "SUM(`filas_silver`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "mes",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Mes"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "sum(filas_bronze)",
+                      "displayName": "Bronze"
+                    },
+                    {
+                      "fieldName": "sum(filas_silver)",
+                      "displayName": "Silver"
+                    }
+                  ],
+                  "format": {
+                    "type": "number",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Filas por mes en cada capa",
+                "showDescription": true,
+                "description": "Filas por mes en bronze (CSV) y en silver (después de limpiar)."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "match_mes",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_calidad",
+                  "fields": [
+                    {
+                      "name": "mes",
+                      "expression": "`mes`"
+                    },
+                    {
+                      "name": "sum(pct_match_parada)",
+                      "expression": "SUM(`pct_match_parada`)"
+                    },
+                    {
+                      "name": "sum(pct_match_variante)",
+                      "expression": "SUM(`pct_match_variante`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "mes",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Mes"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "sum(pct_match_parada)",
+                      "displayName": "Parada con ubicación"
+                    },
+                    {
+                      "fieldName": "sum(pct_match_variante)",
+                      "displayName": "Variante con horario vigente"
+                    }
+                  ],
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Subidas que cruzan con paradas y horarios",
+                "showDescription": true,
+                "description": "Proporción de subidas cuya parada tiene ubicación y cuya variante está en el horario vigente. Por eso las comparaciones con horarios usan solo meses recientes."
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 7,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "alertas",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_calidad",
+                  "fields": [
+                    {
+                      "name": "mes",
+                      "expression": "`mes`"
+                    },
+                    {
+                      "name": "filas_bronze",
+                      "expression": "`filas_bronze`"
+                    },
+                    {
+                      "name": "filas_silver",
+                      "expression": "`filas_silver`"
+                    },
+                    {
+                      "name": "dias_con_datos",
+                      "expression": "`dias_con_datos`"
+                    },
+                    {
+                      "name": "pct_efectivo",
+                      "expression": "`pct_efectivo`"
+                    },
+                    {
+                      "name": "transbordos",
+                      "expression": "`transbordos`"
+                    },
+                    {
+                      "name": "observacion",
+                      "expression": "`observacion`"
+                    }
+                  ],
+                  "disaggregated": true,
+                  "filters": [
+                    {
+                      "expression": "`observacion` <> ''"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "mes",
+                    "displayName": "Mes"
+                  },
+                  {
+                    "fieldName": "filas_bronze",
+                    "displayName": "Filas bronze",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "filas_silver",
+                    "displayName": "Filas silver",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "dias_con_datos",
+                    "displayName": "Días con datos",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "pct_efectivo",
+                    "displayName": "% efectivo",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "transbordos",
+                    "displayName": "Transbordos",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "observacion",
+                    "displayName": "Alertas"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Meses con alertas"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 12,
+            "height": 7
+          }
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F7F8FA",
+        "dark": "#1F272D"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#11171C"
+      },
+      "widgetBorderColor": {
+        "light": "#FFFFFF",
+        "dark": "#11171C"
+      },
+      "fontColor": {
+        "light": "#11171C",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#2272B4",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#0072B2",
+        "#E69F00",
+        "#009E73",
+        "#CC79A7",
+        "#56B4E9",
+        "#D55E00",
+        "#F0E442"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}
