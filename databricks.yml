@@ -22,6 +22,7 @@ targets:
       catalog: lab_spark
       bronze_schema: brz_stm
       silver_schema: slvr_stm
+      gold_schema: gld_stm
   prod:
     mode: production
     workspace:
@@ -32,6 +33,7 @@ targets:
       catalog: lab_spark
       bronze_schema: brz_stm
       silver_schema: slvr_stm
+      gold_schema: gld_stm
     permissions:
       - user_name: santiagosil3434@gmail.com
         level: CAN_MANAGE

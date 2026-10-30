@@ -6,3 +6,9 @@ variables:
     description: The schema to use for bronze tables
   silver_schema:
     description: The schema to use for silver tables
+  gold_schema:
+    description: The schema to use for gold tables
+  warehouse_id:
+    description: SQL warehouse que ejecuta las consultas del dashboard
+    lookup:
+      warehouse: Serverless Starter Warehouse
